@@ -60,7 +60,10 @@ def weather_node(state: WeatherState) -> dict:
 def gemini_node(state: WeatherState) -> dict:
     """
     Generate a human-readable weather report from
-    the factual weather data.
+    the factual current and hourly weather data.
+
+    The 5-day forecast is NOT included in the Gemini report.
+    It will be displayed separately in the Streamlit UI.
     """
 
     location_name = state["location_name"]
@@ -69,20 +72,31 @@ def gemini_node(state: WeatherState) -> dict:
 
     current = state["current_weather"]
     hourly = state["hourly_forecast"]
-    daily = state["daily_forecast"]
 
-    # We only send today's 24 hours to Gemini
-    # for the hourly analysis.
+    # --------------------------------------------------------
+    # Today's hourly forecast
+    # --------------------------------------------------------
+
     today_hourly = hourly[:24]
+
+    # --------------------------------------------------------
+    # Gemini prompt
+    # --------------------------------------------------------
 
     prompt = f"""
 You are a weather assistant.
 
 Generate a clear and useful weather report for the user.
 
-IMPORTANT RULE:
-Use ONLY the weather data provided below.
-Do not invent, estimate, or change any weather values.
+IMPORTANT RULES:
+
+1. Use ONLY the weather data provided below.
+2. Do not invent weather values.
+3. Do not estimate missing values.
+4. Do not change any numerical weather values.
+5. Do not provide a 5-day forecast.
+6. The 5-day forecast will be displayed separately
+   by the application.
 
 Location:
 {location_name}, {state_name}, {country}
@@ -93,57 +107,75 @@ CURRENT WEATHER:
 TODAY'S HOURLY FORECAST:
 {today_hourly}
 
-5-DAY FORECAST:
-{daily}
 
-Create the report using this structure:
+Create the report using exactly these sections:
+
 
 1. Current Weather
+
 - Explain the current temperature.
-- Mention feels-like temperature.
+- Mention the feels-like temperature.
 - Mention humidity.
-- Mention current weather condition.
-- Mention wind.
+- Mention the current weather condition.
+- Mention wind speed and wind gusts.
 - Mention pressure.
-- Mention current precipitation/rain.
+- Mention current precipitation and rain.
+
 
 2. Today's Weather
+
 - Explain how the weather is expected to develop
   throughout the day.
-- Mention important changes in temperature.
+- Mention important temperature changes.
 - Mention periods with high rain probability.
 - Mention thunderstorms if present.
 - Mention when rain probability decreases.
+- Mention notable changes between morning,
+  afternoon, evening, and night.
+
 
 3. Rain Analysis
+
 - Explain today's rain probability.
-- Mention whether rain is likely to be persistent,
-  intermittent, or limited to certain hours.
+- Identify periods when rain is most likely.
+- Mention whether rain appears persistent,
+  intermittent, or concentrated in certain hours.
 - Do not confuse rain probability with rainfall amount.
+- Mention thunderstorms if they occur.
 
-4. 5-Day Outlook
-- Summarize the temperature trend.
-- Mention high and low temperatures.
-- Mention rain probability.
-- Mention notable weather changes.
 
-5. Practical Advice
+4. Practical Advice
+
 - Give simple practical advice based strictly on
-  the provided weather.
-- For example, mention an umbrella if rain probability
-  is high.
+  the provided weather data.
+- Mention an umbrella or rain protection when
+  rain probability is high.
+- Mention strong wind precautions when wind or
+  wind gusts are significant.
 - Do not give medical advice.
 
+
 Keep the report concise but informative.
+
 Use °C and km/h.
 
+Do not create a 5-day outlook.
+
 Do not make up sunrise or sunset information.
+
+Do not mention information that is not present
+in the provided weather data.
 """
+
+    # --------------------------------------------------------
+    # Call Gemini
+    # --------------------------------------------------------
 
     response = llm.invoke(prompt)
 
-    # Gemini/LangChain can return content either as a
-    # normal string or as a list of content blocks.
+    # --------------------------------------------------------
+    # Extract Gemini response
+    # --------------------------------------------------------
 
     if isinstance(response.content, str):
 
@@ -164,6 +196,10 @@ Do not make up sunrise or sunset information.
 
                 response_text += str(block)
 
+    # --------------------------------------------------------
+    # Return response
+    # --------------------------------------------------------
+
     return {
         "response": response_text
     }
@@ -176,17 +212,49 @@ Do not make up sunrise or sunset information.
 builder = StateGraph(WeatherState)
 
 
+# ------------------------------------------------------------
 # Add nodes
-builder.add_node("geocoding", geocoding_node)
-builder.add_node("weather", weather_node)
-builder.add_node("gemini", gemini_node)
+# ------------------------------------------------------------
+
+builder.add_node(
+    "geocoding",
+    geocoding_node
+)
+
+builder.add_node(
+    "weather",
+    weather_node
+)
+
+builder.add_node(
+    "gemini",
+    gemini_node
+)
 
 
+# ------------------------------------------------------------
 # Define workflow
-builder.add_edge(START, "geocoding")
-builder.add_edge("geocoding", "weather")
-builder.add_edge("weather", "gemini")
-builder.add_edge("gemini", END)
+# ------------------------------------------------------------
+
+builder.add_edge(
+    START,
+    "geocoding"
+)
+
+builder.add_edge(
+    "geocoding",
+    "weather"
+)
+
+builder.add_edge(
+    "weather",
+    "gemini"
+)
+
+builder.add_edge(
+    "gemini",
+    END
+)
 
 
 # ============================================================
